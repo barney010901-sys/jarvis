@@ -1,0 +1,47 @@
+# Local development stack: PostgreSQL + the backend.
+#
+# The backend does not connect to Postgres yet in Phase 1 (memory is
+# in-memory — see docs/DECISIONS.md), but the service is included now so
+# the Phase-2 switch to a Postgres-backed memory store needs no compose
+# changes, only a code change behind the existing MemoryStore interfaces.
+#
+# Usage (from repo root):
+#   cp backend/.env.example backend/.env   # then edit it
+#   docker compose -f docker/docker-compose.yml up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis
+      POSTGRES_DB: jarvis
+    ports:
+      - "5432:5432"
+    volumes:
+      - jarvis_postgres_data:/var/lib/postgresql/data
+      - ../memory/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+    environment:
+      DATABASE_URL: postgresql://jarvis:jarvis@postgres:5432/jarvis
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  jarvis_postgres_data:
