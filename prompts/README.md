@@ -1,15 +1,14 @@
 # Prompts
 
-Prompt templates the `/agent` layer will load by name once Phase 2 wires
-`ClaudeProvider` into the orchestrator/planner. Kept as plain files (not
-inline Python strings) so they can be iterated on without a backend
-deploy.
+Prompt templates, loaded from disk (not inline Python strings) so they can
+be iterated on without a backend deploy — `backend/app/prompts_loader.py`
+reads them by name.
 
-Nothing in Phase 1 loads these yet — `StubOrchestrator` and `StubPlanner`
-don't call the AI provider at all (see `docs/PHASE_1.md`). They exist now
-so the prompt *shape* is decided alongside the interfaces that will use it.
+| file                  | used by                                                              |
+|-----------------------|------------------------------------------------------------------------|
+| `system_prompt.md`    | `ClaudeOrchestrator` — its `{context}` placeholder is filled with the `ContextEngine`-built `ContextBundle` text for the current request. |
+| `planner_prompt.md`   | Not yet loaded by code — `ClaudePlanner` (`backend/app/planner/claude_planner.py`) currently builds its planning prompt inline. Kept here as the intended shape for when that's factored out; do so if the inline version grows past a few lines. |
 
-| file                  | used by (future)                      |
-|-----------------------|-----------------------------------------|
-| `system_prompt.md`    | the main Jarvis system prompt (identity, tone, safety rules) |
-| `planner_prompt.md`   | turns a user request + context into a structured plan |
+`StubOrchestrator`/`StubPlanner` (the Phase 1 fallback path — still active
+when Postgres/Claude aren't configured) never load these; only
+`ClaudeOrchestrator` does.

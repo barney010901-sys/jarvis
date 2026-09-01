@@ -16,7 +16,19 @@ const ICON: Record<string, string> = {
   'task.failed': '✕',
   'task.completed': '●',
   'voice.transcription.completed': '"',
+  // --- Phase 2 additions ---
+  'context.updated': '≡',
+  'task.evaluating': '…',
+  'knowledge.created': '✦',
+  'knowledge.updated': '✧',
+  'interest.detected': '♥',
+  'suggestion.created': '✳',
 };
+
+// task.delta fires once per streamed text chunk (potentially dozens per
+// task) — it drives the chat bubble (see useChatMessages), not this
+// status log, so it's filtered out below rather than flooding the list.
+const HIDDEN_FROM_LOG = new Set(['task.delta']);
 
 function colorFor(type: string): string {
   if (type === 'task.failed' || type === 'confirmation.rejected') return colors.danger;
@@ -36,6 +48,15 @@ function summarize(event: JarvisEvent): string {
       return String(event.payload.error ?? '');
     case 'confirmation.required':
       return String(event.payload.tool_name ?? '');
+    case 'knowledge.created':
+    case 'knowledge.updated':
+      return String(event.payload.category ?? event.payload.reason ?? '');
+    case 'interest.detected':
+      return String(event.payload.topic ?? '');
+    case 'suggestion.created':
+      return String(event.payload.title ?? '');
+    case 'context.updated':
+      return event.payload.history_truncated ? 'history truncated' : '';
     default:
       return '';
   }
@@ -43,7 +64,9 @@ function summarize(event: JarvisEvent): string {
 
 /** Live log of backend Events — "task status" and "tool execution status". */
 export function TaskProgressPanel({ events }: { events: JarvisEvent[] }) {
-  if (events.length === 0) {
+  const visible = events.filter((e) => !HIDDEN_FROM_LOG.has(e.type));
+
+  if (visible.length === 0) {
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyText}>No activity yet.</Text>
@@ -53,7 +76,7 @@ export function TaskProgressPanel({ events }: { events: JarvisEvent[] }) {
 
   return (
     <FlatList
-      data={[...events].reverse()}
+      data={[...visible].reverse()}
       keyExtractor={(item) => item.id}
       style={styles.list}
       renderItem={({ item }) => (

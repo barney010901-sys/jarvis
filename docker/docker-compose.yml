@@ -1,13 +1,21 @@
 # Local development stack: PostgreSQL + the backend.
 #
-# The backend does not connect to Postgres yet in Phase 1 (memory is
-# in-memory — see docs/DECISIONS.md), but the service is included now so
-# the Phase-2 switch to a Postgres-backed memory store needs no compose
-# changes, only a code change behind the existing MemoryStore interfaces.
+# Since Phase 2, the backend connects to Postgres for real (memory,
+# knowledge, profile, tasks, audit, cost — see docs/PHASE_2.md) and needs
+# ANTHROPIC_API_KEY set for ClaudeOrchestrator; without it, it falls back
+# to the Phase 1 stub stack automatically rather than failing to start.
 #
 # Usage (from repo root):
 #   cp backend/.env.example backend/.env   # then edit it
 #   docker compose -f docker/docker-compose.yml up --build
+#
+# Both memory/schema.sql and memory/migrations/0002_phase2.sql are
+# mounted into docker-entrypoint-initdb.d with numeric prefixes so
+# Postgres applies them in order — but ONLY on a brand-new volume. If
+# jarvis_postgres_data already exists from a Phase 1 checkout, apply the
+# migration once by hand instead:
+#   docker compose -f docker/docker-compose.yml exec -T postgres \
+#     psql -U jarvis -d jarvis -f - < memory/migrations/0002_phase2.sql
 
 services:
   postgres:
@@ -21,7 +29,8 @@ services:
       - "5432:5432"
     volumes:
       - jarvis_postgres_data:/var/lib/postgresql/data
-      - ../memory/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - ../memory/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ../memory/migrations/0002_phase2.sql:/docker-entrypoint-initdb.d/02_phase2.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jarvis"]
       interval: 5s
@@ -30,8 +39,9 @@ services:
 
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      # Repo root, not backend/ — see backend/Dockerfile.
+      context: ..
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     env_file:
       - ../backend/.env

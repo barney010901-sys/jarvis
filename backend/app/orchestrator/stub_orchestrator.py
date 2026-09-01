@@ -1,10 +1,16 @@
 """Phase 1 orchestrator: exercises the full event/permission/tool lifecycle
-with the StubPlanner. No real reasoning — see docs/PHASE_1.md.
+with the StubPlanner. No real reasoning — see docs/PHASE_1.md. Kept
+unchanged (not replaced) in Phase 2: it's still what `deps.py` falls back
+to when Postgres/Claude aren't configured (docs/PHASE_2.md), and it's a
+useful "prove the plumbing works with zero external dependencies" mode on
+its own.
 
 This is deliberately the piece with the most "moving parts" wired together
 (events, memory, permissions, tools) because it's the seam every later
 phase (a real planner, a real AIProvider) plugs into without changing the
-API/WebSocket layer above it.
+API/WebSocket layer above it. Phase 2 added `ClaudeOrchestrator` alongside
+this one, sharing the tool-execution loop via `plan_execution.py` instead
+of duplicating it.
 """
 from __future__ import annotations
 
@@ -16,8 +22,8 @@ from app.events.bus import EventBus
 from app.events.models import Event, EventType
 from app.memory.store import ConversationTurn, ShortTermMemory, WorkingMemory
 from app.orchestrator.interface import OrchestratorInterface
-from app.permissions.manager import ConfirmationManager, ConfirmationRejected
-from app.permissions.models import PermissionLevel
+from app.orchestrator.plan_execution import execute_plan
+from app.permissions.manager import ConfirmationManager
 from app.planner.interface import PlannerInterface
 from app.tools.registry import ToolRegistry
 
@@ -60,7 +66,13 @@ class StubOrchestrator(OrchestratorInterface):
             )
             return task_id
 
-        await self._working_memory.set(task_id, "plan", plan)
+        # Stored as plain dicts, not the Plan dataclass: working memory is
+        # meant to hold serializable state (see docs/DECISIONS.md, "Working
+        # memory stores plain data, not live objects") so it works
+        # identically against the in-memory and Postgres-backed stores.
+        await self._working_memory.set(
+            task_id, "plan", [{"description": s.description, "tool_name": s.tool_name} for s in plan.steps]
+        )
         await self._event_bus.publish(
             Event(
                 type=EventType.TASK_PLANNED,
@@ -71,60 +83,19 @@ class StubOrchestrator(OrchestratorInterface):
 
         await self._event_bus.publish(Event(type=EventType.TASK_STARTED, task_id=task_id, payload={}))
 
-        step = plan.next_step()
-        while step is not None:
-            if step.tool_name:
-                tool = self._tools.get(step.tool_name)
-                if tool is None:
-                    await self._event_bus.publish(
-                        Event(
-                            type=EventType.TASK_FAILED,
-                            task_id=task_id,
-                            payload={"stage": "tool_lookup", "error": f"unknown tool '{step.tool_name}'"},
-                        )
-                    )
-                    return task_id
-
-                if tool.permission_level == PermissionLevel.SENSITIVE:
-                    try:
-                        await self._confirmations.request_confirmation(
-                            tool_name=tool.name,
-                            description=step.description,
-                            task_id=task_id,
-                        )
-                    except ConfirmationRejected:
-                        await self._event_bus.publish(
-                            Event(
-                                type=EventType.TASK_FAILED,
-                                task_id=task_id,
-                                payload={"stage": "confirmation", "error": "user rejected the sensitive action"},
-                            )
-                        )
-                        return task_id
-
-                await self._event_bus.publish(
-                    Event(type=EventType.TOOL_STARTED, task_id=task_id, payload={"tool_name": tool.name})
+        outcome = await execute_plan(
+            plan, tool_registry=self._tools, confirmation_manager=self._confirmations, event_bus=self._event_bus, task_id=task_id
+        )
+        if not outcome.success:
+            await self._working_memory.clear(task_id)
+            await self._event_bus.publish(
+                Event(
+                    type=EventType.TASK_FAILED,
+                    task_id=task_id,
+                    payload={"stage": outcome.failed_stage, "error": outcome.error, "tool_name": outcome.failed_tool_name},
                 )
-                result = await tool.run(project_root=".")
-                await self._event_bus.publish(
-                    Event(
-                        type=EventType.TOOL_COMPLETED,
-                        task_id=task_id,
-                        payload={"tool_name": tool.name, "success": result.success, "error": result.error},
-                    )
-                )
-                if not result.success:
-                    await self._event_bus.publish(
-                        Event(
-                            type=EventType.TASK_FAILED,
-                            task_id=task_id,
-                            payload={"stage": "tool_execution", "tool_name": tool.name, "error": result.error},
-                        )
-                    )
-                    return task_id
-
-            step.completed = True
-            step = plan.next_step()
+            )
+            return task_id
 
         await self._working_memory.clear(task_id)
         response_text = f"Completed {len(plan.steps)} step(s) for: {text!r} (Phase 1 stub — no real reasoning yet)."

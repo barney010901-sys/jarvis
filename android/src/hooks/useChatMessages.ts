@@ -12,8 +12,11 @@ export type ChatMessage = {
 /**
  * Projects the raw event log into chat turns. A task.created with no
  * matching task.completed/task.failed yet renders as a pending assistant
- * bubble — this is the "streaming assistant response" placeholder until
- * Phase 2 streams real token-by-token text (see agent/provider/base.py).
+ * bubble, filled in live by task.delta chunks as the real Claude response
+ * streams in (Phase 2 — see backend/app/orchestrator/claude_orchestrator.py).
+ * When a task is answered straight from knowledge (no Claude call; see
+ * `served_from_knowledge`), there are no deltas — task.completed fills the
+ * bubble directly, same as it did in Phase 1.
  */
 export function useChatMessages(events: JarvisEvent[]): ChatMessage[] {
   return useMemo(() => {
@@ -27,8 +30,16 @@ export function useChatMessages(events: JarvisEvent[]): ChatMessage[] {
           break;
         case 'task.created':
           openTaskId = event.task_id;
-          messages.push({ id: `pending-${event.task_id}`, role: 'assistant', text: 'Working on it…', pending: true });
+          messages.push({ id: `pending-${event.task_id}`, role: 'assistant', text: '', pending: true });
           break;
+        case 'task.delta': {
+          const idx = messages.findIndex((m) => m.id === `pending-${event.task_id}`);
+          if (idx >= 0) {
+            const chunk = String(event.payload.text ?? '');
+            messages[idx] = { ...messages[idx], text: messages[idx].text + chunk };
+          }
+          break;
+        }
         case 'task.completed': {
           const idx = messages.findIndex((m) => m.id === `pending-${event.task_id}`);
           const text = String(event.payload.response ?? 'Done.');

@@ -26,6 +26,20 @@ class EventType(str, Enum):
     TASK_FAILED = "task.failed"
     TASK_COMPLETED = "task.completed"
 
+    # --- Phase 2 additions (docs/DECISIONS.md, "Phase 2 event vocabulary") ---
+    CONTEXT_UPDATED = "context.updated"
+    TASK_EVALUATING = "task.evaluating"
+    KNOWLEDGE_CREATED = "knowledge.created"
+    KNOWLEDGE_UPDATED = "knowledge.updated"
+    INTEREST_DETECTED = "interest.detected"
+    SUGGESTION_CREATED = "suggestion.created"
+    # Not in the Phase 2 spec's event list verbatim, but required to satisfy
+    # 2A's "streaming" requirement without inventing a second channel: text
+    # chunks from a real Claude response are forwarded as these, one per
+    # chunk, so the existing /ws pipe (not a new one) carries them to the
+    # Android app. See docs/DECISIONS.md.
+    TASK_DELTA = "task.delta"
+
 
 class Event(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))

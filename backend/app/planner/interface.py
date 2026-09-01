@@ -15,6 +15,11 @@ class PlanStep:
     description: str
     tool_name: str | None = None
     completed: bool = False
+    # Phase 2 (2U): when a planner knows this step should produce a
+    # specific file, the evaluation engine verifies it actually exists
+    # rather than trusting the response. Optional — Phase 1 planners never
+    # set this, and nothing breaks if it stays None.
+    expected_file: str | None = None
 
 
 @dataclass

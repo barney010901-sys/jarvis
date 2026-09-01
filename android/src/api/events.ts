@@ -14,7 +14,15 @@ export type EventType =
   | 'confirmation.approved'
   | 'confirmation.rejected'
   | 'task.failed'
-  | 'task.completed';
+  | 'task.completed'
+  // --- Phase 2 additions (backend/app/events/models.py) ---
+  | 'context.updated'
+  | 'task.evaluating'
+  | 'knowledge.created'
+  | 'knowledge.updated'
+  | 'interest.detected'
+  | 'suggestion.created'
+  | 'task.delta';
 
 export type JarvisEvent = {
   id: string;

@@ -61,6 +61,11 @@ class LongTermMemory(ABC):
         should embed `query` and rank by pgvector cosine distance instead,
         without changing this signature."""
 
+    @abstractmethod
+    async def delete(self, fact_id: str) -> None:
+        """Memory deletion (Phase 2, 2C). Used when a fact is superseded by
+        a correction or otherwise no longer valid."""
+
 
 class InMemoryWorkingMemory(WorkingMemory):
     def __init__(self) -> None:
@@ -102,3 +107,6 @@ class InMemoryLongTermMemory(LongTermMemory):
             if f.project == project and query_lower in f.content.lower()
         ]
         return matches[:limit]
+
+    async def delete(self, fact_id: str) -> None:
+        self._facts = [f for f in self._facts if f.id != fact_id]

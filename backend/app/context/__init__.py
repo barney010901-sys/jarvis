@@ -1,3 +1,3 @@
-from app.context.engine import ContextEngine
+from app.context.engine import ContextBundle, ContextEngine
 
-__all__ = ["ContextEngine"]
+__all__ = ["ContextEngine", "ContextBundle"]
