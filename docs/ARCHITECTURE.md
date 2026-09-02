@@ -89,9 +89,13 @@ three roles — `fast`/`primary`/`fallback` — each backed by a
 retry/timeout handling and a same-provider-family fallback on failure.
 `FakeProvider` is a deterministic test double used throughout the backend
 test suite so orchestrator behavior can be verified without a network
-call or API key. `agent/coding_agent` defines the interface a real Claude
-Code integration will implement; it is intentionally *not* faked (see
-`docs/DECISIONS.md`).
+call or API key. `OllamaProvider` (Phase 4) is a real alternative to
+Claude — a locally-running Ollama server, no API key, nothing leaves the
+machine — selected via `JARVIS_USE_LOCAL_MODEL=true`; `ClaudeOrchestrator`/
+`ClaudePlanner` are reused unchanged against it (see docs/DECISIONS.md,
+"Local model support via Ollama"). `agent/coding_agent` defines the
+interface a real Claude Code integration will implement; it is
+intentionally *not* faked (see `docs/DECISIONS.md`).
 
 ### Memory (`/memory`)
 `schema.sql` is the Phase 1 PostgreSQL schema (three tables:

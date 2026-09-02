@@ -1,0 +1,29 @@
+# Names a real, running local model "jarvis" inside Ollama, built on an
+# existing open-weight base model (default: Gemma 3 — swap the FROM line
+# for any other model already pulled, e.g. `llama3.1`, `qwen2.5`,
+# `mistral`, `deepseek-r1`). This does NOT train a new model from
+# scratch — that needs resources (data/compute/months of work) this
+# project cannot provide, see docs/DECISIONS.md. It DOES make `ollama
+# list` / `ollama run jarvis` show and run something named "jarvis", not
+# the base model's name — a real, distinct model identity in Ollama's own
+# registry, not just a system prompt pasted on top at request time.
+#
+# Usage:
+#   ollama pull gemma3          # or whichever model you put in FROM below
+#   ollama create jarvis -f agent/provider/ollama/Modelfile
+#   ollama run jarvis           # now it's "jarvis", not "gemma3"
+#
+# The SYSTEM block below is a fallback identity for direct/interactive use
+# (`ollama run jarvis` outside the backend). The real Jarvis backend
+# already injects the full, current system prompt (prompts/system_prompt.md
+# + live ContextEngine data) on every request regardless of this default —
+# this Modelfile only controls what you get if you talk to "jarvis"
+# directly through Ollama itself.
+
+FROM gemma3
+
+SYSTEM """
+You are Jarvis, a personal AI assistant. Be direct and concise. Before
+any sensitive action (sending a message, deleting data, spending money),
+stop and ask for confirmation rather than proceeding on your own.
+"""

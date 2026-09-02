@@ -3,6 +3,54 @@
 Short, dated records of choices made where the spec left room for more than
 one reasonable approach. Newest first.
 
+## Phase 4 (2026-09-02, local model support)
+
+### Local model support via Ollama — no API key, ClaudeOrchestrator reused as-is
+
+**Decision:** added `agent/provider/ollama_provider.py` (`OllamaProvider`,
+implements `AIProvider` against a locally-running Ollama server's REST
+API — no API key, no cloud call) and `build_local_router()`
+(`agent/provider/router.py`), selected in `deps.py` via
+`JARVIS_USE_LOCAL_MODEL=true` (with Claude not configured). Explicit user
+request, 2026-09-02: run Jarvis's reasoning against a local, open-weight
+model instead of Claude — no cloud dependency, no API key, own identity.
+
+**Why `ClaudeOrchestrator`/`ClaudePlanner` are reused unchanged, not
+duplicated:** despite the class names, neither is actually Claude-specific
+in implementation — both depend only on `ModelRouter`/`AIProvider`
+(`agent/provider/base.py`), never the `anthropic` SDK. `deps.py` picks
+`build_claude_router()` or `build_local_router()` based on which backend
+is configured and hands the result to the exact same orchestrator/planner
+pair either way. This matches the router abstraction's original design
+intent (`docs/ARCHITECTURE.md`: "a future provider... just needs to
+implement `AIProvider`").
+
+**`intelligence_ready = claude_ready or local_model_ready`:** the
+Phase 2/3/4 stack (knowledge/profile/wallet/etc.) only needs Postgres +
+*some* model behind it — introduced as a new, additive gate alongside
+the existing `claude_ready` (left with its original, narrower meaning:
+"Claude specifically is configured and active" — still used as-is by
+`HealthService`'s `claude` component check, which correctly reports
+`NOT_CONFIGURED` when a local model is active instead). If both were
+somehow enabled at once, Claude wins (a configured, paid API key is
+assumed to be the deliberate, more capable choice) — see `deps.py`.
+
+**A real model must still back "jarvis" — no training from scratch:**
+`agent/provider/ollama/Modelfile` builds a model literally named "jarvis"
+in Ollama's own registry (`ollama create jarvis -f Modelfile`, so
+`ollama list`/`ollama run jarvis` show and run "jarvis", not its base
+model's name) — but it has to `FROM` an existing open-weight model
+(Gemma, Llama, Qwen, Mistral, DeepSeek, whichever the user has pulled).
+Training an actual new model from zero needs data/compute/months of
+specialized work this project cannot provide — explained directly to the
+user rather than implied as achievable. This is the same honesty
+principle as everywhere else in this project (REAL/MOCKED/NOT_TESTED,
+never fabricate a capability that doesn't exist).
+
+**Local inference quality/speed is honestly weaker than Claude's,
+depending on hardware and the chosen base model** — not something code
+can fix; the user was told this plainly before building this.
+
 ## Phase 4 (2026-09-02, foundation increment 4B-4E)
 
 ### The future coding agent uses the SAME `ANTHROPIC_API_KEY`, not a separate one

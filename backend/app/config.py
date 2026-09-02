@@ -55,6 +55,21 @@ class Settings(BaseSettings):
     jarvis_use_postgres: bool = True
     jarvis_use_claude: bool = True
 
+    # --- Local model support (agent/provider/ollama_provider.py) ---
+    # An alternative to Claude: a locally-running Ollama server, no API
+    # key, nothing leaves the machine. Off by default — set
+    # JARVIS_USE_LOCAL_MODEL=true (and leave ANTHROPIC_API_KEY unset, or
+    # jarvis_use_claude=false) to run the ClaudeOrchestrator/ClaudePlanner
+    # pair (both provider-agnostic despite the name — see
+    # docs/DECISIONS.md) against a local model instead of Claude. See
+    # agent/provider/ollama/Modelfile for naming the model "jarvis" in
+    # Ollama's own registry rather than running it under its base model's
+    # name (e.g. "gemma3").
+    jarvis_use_local_model: bool = False
+    jarvis_local_model_name: str = "jarvis"
+    jarvis_local_model_base_url: str = "http://localhost:11434"
+    jarvis_local_model_timeout_seconds: float = 120.0
+
     # --- Phase 2: feature flags (see docs/DECISIONS.md, "Feature flags") ---
     # Off by default unless noted: these gate experimental or
     # potentially-costly systems so they can be toggled without a code

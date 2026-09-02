@@ -102,3 +102,19 @@ def build_claude_router(
         FALLBACK: ClaudeProvider(api_key=api_key, model=fallback_model, max_tokens=max_tokens, timeout=timeout, max_retries=max_retries, role=FALLBACK),
     }
     return ModelRouter(providers)
+
+
+def build_local_router(*, model: str, base_url: str, timeout: float = 120.0) -> ModelRouter:
+    """Convenience factory: all three roles backed by the SAME local Ollama
+    model (unlike `build_claude_router`, there's no separate fast/cheap
+    tier to route to for a self-hosted model — it's one model, one cost:
+    free, running on this machine). No API key anywhere in this path.
+    See docs/DECISIONS.md ("Local model support via Ollama")."""
+    from agent.provider.ollama_provider import OllamaProvider
+
+    providers = {
+        FAST: OllamaProvider(model=model, base_url=base_url, timeout=timeout, role=FAST),
+        PRIMARY: OllamaProvider(model=model, base_url=base_url, timeout=timeout, role=PRIMARY),
+        FALLBACK: OllamaProvider(model=model, base_url=base_url, timeout=timeout, role=FALLBACK),
+    }
+    return ModelRouter(providers)

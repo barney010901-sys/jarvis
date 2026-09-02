@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agent.provider.router import ModelRouter, build_claude_router
+from agent.provider.router import ModelRouter, build_claude_router, build_local_router
 
 from app.audit.logger import AuditLogger
 from app.audit.store import AuditStore, InMemoryAuditStore, PostgresAuditStore
@@ -129,6 +129,14 @@ async def initialize() -> None:
         usage_store = InMemoryUsageStore()
 
     claude_ready = pool is not None and settings.jarvis_use_claude and bool(settings.anthropic_api_key)
+    # Local model: an alternative to Claude, no API key at all — see
+    # agent/provider/ollama_provider.py and docs/DECISIONS.md ("Local model
+    # support via Ollama"). If both are somehow enabled, Claude wins (a
+    # configured, paid-for API key is assumed to be the deliberate choice).
+    local_model_ready = pool is not None and settings.jarvis_use_local_model and not claude_ready
+    # The Phase 2/3/4 intelligence stack (knowledge/profile/wallet/etc.)
+    # only needs Postgres + SOME model behind it — it doesn't care which.
+    intelligence_ready = claude_ready or local_model_ready
 
     orchestrator: OrchestratorInterface
     context_engine: ContextEngine
@@ -165,9 +173,12 @@ async def initialize() -> None:
 
     # System health is meaningful precisely BECAUSE it can report on a
     # partially-configured or fallback stack — always constructed.
-    health_service = HealthService(pool=pool, claude_configured=claude_ready, event_bus=event_bus, tool_registry=tool_registry)
+    health_service = HealthService(
+        pool=pool, claude_configured=claude_ready, event_bus=event_bus, tool_registry=tool_registry,
+        local_model_base_url=settings.jarvis_local_model_base_url if settings.jarvis_use_local_model else None,
+    )
 
-    if claude_ready:
+    if intelligence_ready:
         profile_store = PostgresProfileStore(pool)
         knowledge_service = KnowledgeService(
             PostgresKnowledgeStore(pool), event_bus, similarity_threshold=settings.knowledge_similarity_threshold
@@ -220,15 +231,26 @@ async def initialize() -> None:
             capability_service=capability_service, business_service=business_service, health_service=health_service,
         )
 
-        model_router = build_claude_router(
-            api_key=settings.anthropic_api_key,
-            primary_model=settings.jarvis_model_primary,
-            fast_model=settings.jarvis_model_fast,
-            fallback_model=settings.jarvis_model_fallback,
-            max_tokens=settings.claude_max_tokens,
-            timeout=settings.claude_timeout_seconds,
-            max_retries=settings.claude_max_retries,
-        )
+        if claude_ready:
+            model_router = build_claude_router(
+                api_key=settings.anthropic_api_key,
+                primary_model=settings.jarvis_model_primary,
+                fast_model=settings.jarvis_model_fast,
+                fallback_model=settings.jarvis_model_fallback,
+                max_tokens=settings.claude_max_tokens,
+                timeout=settings.claude_timeout_seconds,
+                max_retries=settings.claude_max_retries,
+            )
+        else:
+            # local_model_ready — see agent/provider/ollama_provider.py.
+            # ClaudePlanner/ClaudeOrchestrator are provider-agnostic despite
+            # the name (both work off ModelRouter/AIProvider) — see
+            # docs/DECISIONS.md.
+            model_router = build_local_router(
+                model=settings.jarvis_local_model_name,
+                base_url=settings.jarvis_local_model_base_url,
+                timeout=settings.jarvis_local_model_timeout_seconds,
+            )
         planner = ClaudePlanner(model_router, tool_registry)
 
         orchestrator = ClaudeOrchestrator(
@@ -248,7 +270,14 @@ async def initialize() -> None:
             profile_store=profile_store,
             min_confidence_to_skip_claude=settings.knowledge_min_confidence_to_skip_claude,
         )
-        logger.info("ClaudeOrchestrator active: Postgres connected and ANTHROPIC_API_KEY configured.")
+        if claude_ready:
+            logger.info("ClaudeOrchestrator active: Postgres connected and ANTHROPIC_API_KEY configured.")
+        else:
+            logger.info(
+                "ClaudeOrchestrator active with a LOCAL model (no API key): Postgres connected, "
+                "JARVIS_USE_LOCAL_MODEL=true, model=%s at %s.",
+                settings.jarvis_local_model_name, settings.jarvis_local_model_base_url,
+            )
     else:
         context_engine = ContextEngine(working_memory, short_term_memory, long_term_memory)
         orchestrator = StubOrchestrator(
@@ -262,10 +291,12 @@ async def initialize() -> None:
         )
         if pool is None:
             reason = "PostgreSQL unavailable/disabled"
-        elif not settings.jarvis_use_claude:
-            reason = "JARVIS_USE_CLAUDE=false"
+        elif not settings.jarvis_use_claude and not settings.jarvis_use_local_model:
+            reason = "JARVIS_USE_CLAUDE=false and JARVIS_USE_LOCAL_MODEL=false"
+        elif settings.jarvis_use_claude and not settings.anthropic_api_key and not settings.jarvis_use_local_model:
+            reason = "ANTHROPIC_API_KEY not set and JARVIS_USE_LOCAL_MODEL=false"
         else:
-            reason = "ANTHROPIC_API_KEY not set"
+            reason = "unknown — check jarvis_use_claude/anthropic_api_key/jarvis_use_local_model settings"
         logger.warning("Falling back to StubOrchestrator (Phase 1 behavior): %s.", reason)
 
     audit_logger = AuditLogger(event_bus, audit_store)
@@ -274,6 +305,8 @@ async def initialize() -> None:
     _state.update(
         pool=pool,
         claude_ready=claude_ready,
+        local_model_ready=local_model_ready,
+        intelligence_ready=intelligence_ready,
         event_bus=event_bus,
         tool_registry=tool_registry,
         confirmation_manager=confirmation_manager,
@@ -448,6 +481,17 @@ def is_claude_ready() -> bool:
     return bool(_state.get("claude_ready"))
 
 
+def is_local_model_ready() -> bool:
+    return bool(_state.get("local_model_ready"))
+
+
+def is_intelligence_ready() -> bool:
+    """True if EITHER Claude or a local model is active — i.e. whether
+    the Phase 2/3/4 intelligence stack (knowledge/profile/wallet/etc.) is
+    on, regardless of which model backs it."""
+    return bool(_state.get("intelligence_ready"))
+
+
 __all__ = [
     "initialize",
     "shutdown",
@@ -483,4 +527,6 @@ __all__ = [
     "get_autonomy_mode_service",
     "get_resource_budget_service",
     "is_claude_ready",
+    "is_local_model_ready",
+    "is_intelligence_ready",
 ]

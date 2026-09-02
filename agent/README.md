@@ -32,6 +32,15 @@ repo root for the reasoning.
   throughout the backend test suite so orchestrator/planner behavior can
   be verified without a network call or API key. Clearly named `Fake*`,
   not disguised as real.
+- `ollama_provider.py` — `OllamaProvider`: a real local-model
+  implementation, talking to a locally-running [Ollama](https://ollama.com)
+  server's REST API (`httpx`, no new dependency). **No API key at
+  all, nothing leaves the machine.** `build_local_router()` (below)
+  builds all three router roles from it. See `ollama/Modelfile` to give
+  the model its own name ("jarvis") in Ollama's registry rather than
+  running under its base model's name. NOT_TESTED against a live Ollama
+  server in this sandbox (no GPU/Ollama installed here) — verified
+  against a mocked HTTP transport instead (`tests/test_ollama_provider.py`).
 
 To use `ClaudeProvider` standalone once `ANTHROPIC_API_KEY` is set:
 
@@ -56,6 +65,25 @@ router = build_claude_router(
 )
 result = await router.complete(PRIMARY, system="...", messages=[...])
 ```
+
+Or fully local, no API key:
+
+```bash
+ollama pull gemma3                                  # or any other base model
+ollama create jarvis -f agent/provider/ollama/Modelfile
+ollama serve                                        # if not already running
+```
+```python
+from agent.provider.router import build_local_router, PRIMARY
+
+router = build_local_router(model="jarvis", base_url="http://localhost:11434")
+result = await router.complete(PRIMARY, system="...", messages=[...])
+```
+Or set it as the backend's active stack: `JARVIS_USE_LOCAL_MODEL=true` in
+`backend/.env` (with `JARVIS_USE_CLAUDE=false` or `ANTHROPIC_API_KEY`
+left empty) — `app/deps.py` then wires `ClaudeOrchestrator`/`ClaudePlanner`
+(both provider-agnostic despite the name) against this router instead of
+Claude's, automatically.
 
 ## `coding_agent/` — delegating coding tasks
 

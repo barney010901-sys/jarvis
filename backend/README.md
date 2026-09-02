@@ -94,9 +94,9 @@ TEST_DATABASE_URL=postgresql://jarvis:jarvis@127.0.0.1:5432/jarvis_test PYTHONPA
 Without `TEST_DATABASE_URL` reachable, every Postgres-dependent test
 `pytest.skip()`s with a message saying so — the rest of the suite (event
 bus, permissions, tools, evaluation, the stub/Claude orchestrators against
-`FakeProvider`, etc.) still runs. 154 tests as of the Phase 4 foundation
-increment: 143 backend (142 passed + 1 honest skip — GitHub search,
-network-blocked in this sandbox) + 11 agent.
+`FakeProvider`, etc.) still runs. 159 tests as of Phase 4's local-model
+addition: 143 backend (142 passed + 1 honest skip — GitHub search,
+network-blocked in this sandbox) + 16 agent.
 
 ## What's real vs. stubbed
 

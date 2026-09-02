@@ -24,17 +24,20 @@ class HealthService:
         claude_configured: bool,
         event_bus: EventBus,
         tool_registry: ToolRegistry | None = None,
+        local_model_base_url: str | None = None,
     ) -> None:
         self._pool = pool
         self._claude_configured = claude_configured
         self._event_bus = event_bus
         self._tool_registry = tool_registry
+        self._local_model_base_url = local_model_base_url
 
     async def check_all(self) -> list[ComponentHealth]:
         checks = [
             ComponentHealth("backend", HealthStatus.HEALTHY, "process is running"),
             await self._check_database(),
             self._check_claude(),
+            await self._check_local_model(),
             ComponentHealth("event_bus", HealthStatus.HEALTHY, "in-process bus active"),
             self._check_tools(),
             await self._check_github(),
@@ -68,6 +71,20 @@ class HealthService:
         if not self._claude_configured:
             return ComponentHealth("claude", HealthStatus.NOT_CONFIGURED, "ANTHROPIC_API_KEY not set or JARVIS_USE_CLAUDE=false")
         return ComponentHealth("claude", HealthStatus.NOT_TESTED, "configured; live API reachability not verified this cycle (no request made)")
+
+    async def _check_local_model(self) -> ComponentHealth:
+        if not self._local_model_base_url:
+            return ComponentHealth("local_model", HealthStatus.NOT_CONFIGURED, "JARVIS_USE_LOCAL_MODEL is false — not attempted")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{self._local_model_base_url.rstrip('/')}/api/tags")
+            if response.status_code == 200:
+                return ComponentHealth("local_model", HealthStatus.HEALTHY, f"Ollama reachable at {self._local_model_base_url}")
+            return ComponentHealth("local_model", HealthStatus.ERROR, f"Ollama returned HTTP {response.status_code}")
+        except httpx.HTTPError as exc:
+            return ComponentHealth(
+                "local_model", HealthStatus.ERROR, f"Ollama unreachable at {self._local_model_base_url} — is `ollama serve` running? ({exc})"
+            )
 
     def _check_tools(self) -> ComponentHealth:
         if self._tool_registry is None:
