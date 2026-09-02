@@ -5,6 +5,23 @@ one reasonable approach. Newest first.
 
 ## Phase 4 (2026-09-02, foundation increment 4B-4E)
 
+### The future coding agent uses the SAME `ANTHROPIC_API_KEY`, not a separate one
+
+**Decision:** when `agent/coding_agent/interface.py`'s real implementation
+is eventually built (still deliberately not implemented — see below), it
+authenticates with the exact same `ANTHROPIC_API_KEY` already configured
+for the rest of Jarvis (`backend/app/config.Settings.anthropic_api_key`),
+inherited through the subprocess environment. There is one Anthropic API
+key for the whole system, never a second one to separately obtain,
+configure, or manage for "the coding agent" as if it were an independent
+account. Explicit user question/confirmation, 2026-09-02: the coding
+agent is not "a separate AI agent with its own key that eventually
+becomes self-sufficient" — it's just another caller of the one credential
+Jarvis already has, exactly like `ClaudeProvider`/`ModelRouter` are.
+No amount of self-learning changes this: calling the real Claude API
+always requires a real, valid API key — that's how the Claude API works,
+not a Jarvis design choice self-learning could ever remove.
+
 ### Self-modification is hard-gated in `PolicyEngine`, not just defaulted that way
 
 **Decision:** `PolicyEngine._auto_approved()` returns `False` immediately

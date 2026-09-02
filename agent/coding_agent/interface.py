@@ -25,6 +25,15 @@ A real implementation should:
 5. Register itself as a SENSITIVE tool in `backend/app/tools/registry.py`
    (it can modify a real project's files), so it goes through the same
    confirmation gate as `GitHubTool`/`BrowserTool`.
+6. Authenticate with the SAME `ANTHROPIC_API_KEY` the rest of Jarvis
+   already uses (`backend/app/config.Settings.anthropic_api_key`) — pass
+   it through the subprocess's environment rather than requiring a
+   second, separately-configured credential. There is exactly one
+   Anthropic API key for the whole system; this agent is not a second
+   "self" with its own account/key, just another caller of the same
+   credential, same as `ClaudeProvider`/`ModelRouter` already are. This
+   was an explicit user decision (2026-09-02) after the same question
+   came up for Phase 4's self-coding proposal flow.
 
 This module defines the contract that implementation must satisfy; it
 carries no code that talks to a subprocess or the CLI.
