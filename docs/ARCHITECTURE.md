@@ -165,6 +165,70 @@ exact flow, which matches the task spec's
 "context → memory → planner → Claude → tools → evaluation → learning"
 pipeline.
 
+## Phase 3 additions (`backend/app/*`, Android)
+
+The **centralized Policy Engine** (`backend/app/policy`) is the one new
+architectural piece everything else in Phase 3 depends on:
+`PolicyEngine.evaluate(PolicyRequest) -> ALLOW/DENY/ASK`, reusing the
+existing `ConfirmationManager` for the ASK gate (no second confirmation
+mechanism) and a durable `approvals` table for the Approval Center. Five
+autonomy levels (`AutonomyLevel`, stored via the existing `preferences`
+table) control how much auto-approves before asking.
+
+New domain services, each gated behind Postgres+Claude being configured
+(see docs/DECISIONS.md, "Phase 3 domains share Phase 2's one-fallback-axis
+rule") and each exposed to Claude as a `Tool`
+(`backend/app/tools/phase3_tools.py`) rather than a new orchestrator path:
+
+- **wallet** — a real, deterministic internal ledger (`wallet_accounts`/
+  `wallet_transactions`) with weekly/monthly/per-transaction limits and a
+  GREEN/YELLOW/RED classification feeding the Policy Engine. No real
+  payment rail — see docs/DECISIONS.md.
+- **communication** + **escalation** — contact management, heuristic
+  message classification, and policy-gated replies/escalation, all real;
+  actual transmission is an explicit `NotImplementedError` adapter — see
+  docs/DECISIONS.md.
+- **business** — ideas, customer pipeline, risk-adjusted opportunity
+  ranking (`backend/app/business/scoring.py`), revenue, and a
+  sustainability-stage summary.
+- **capabilities** — real (unauthenticated) GitHub repository search for
+  capability-gap research, persisted as candidates with an explicit
+  `verification_status`; never installs anything.
+- **health** — live self-diagnostics (`HealthService`) across Postgres,
+  Claude configuration, the event bus, the tool registry, and GitHub
+  reachability; static, honest `NOT_CONFIGURED`/`NOT_TESTED` status for
+  everything not built yet (MCP, browser automation, the coding agent,
+  STT, a physical Android device).
+
+`PlanStep` gained an optional `tool_args` field so the planner can pass
+parameters (a wallet amount, a draft reply) to these tools — see
+docs/DECISIONS.md.
+
+### Android (Phase 3)
+
+- **`JarvisCore`** (`src/components/JarvisCore.tsx`) replaces the Phase 1
+  `VoiceButton` (removed) with nine distinguishable states (IDLE,
+  LISTENING, THINKING, PROCESSING, USING_TOOL, WAITING_FOR_CONFIRMATION,
+  SPEAKING, ERROR, OFFLINE), derived from the existing event stream by
+  `useJarvisState` — no new state system.
+- **Text-to-speech** (`src/tts/speech.ts`, `expo-speech`) speaks completed
+  assistant replies — real, not verified on a physical device (no
+  emulator/device in this sandbox).
+- **Command-center Home screen**: current project/task activity,
+  pending approvals, suggestions, wallet/business/system-health summaries
+  — one dashboard, not a chatbot with a few buttons (section 64).
+- **New screens**: Approvals, Audit, Memory (search), Projects (with
+  inline goals), Tasks, Wallet, Business — each a thin view over the new
+  REST endpoints (`backend/app/api/phase3_routes.py`), reusing the same
+  `Card`/`StatusPill`/`EmptyState` primitives so they read as one system.
+- **Settings** gained sectioned cards (Voice, Privacy/24-7, Autonomy,
+  Escalation contacts, System) rather than one screen per category —
+  deliberately consolidated (section 91: "avoid dozens of disconnected
+  screens").
+- Wake word, VAD, real STT, and real Android system integrations
+  (contacts/SMS/calls/calendar) are **not implemented** — see "What's
+  still deliberately not implemented" below and docs/PHASE_3.md.
+
 ## Event model
 
 The event bus is the backbone connecting the orchestrator, permissions
@@ -194,6 +258,18 @@ suggestion.created
 task.delta          # not in the original task spec's list — one per
                      # streamed response chunk; see docs/DECISIONS.md
                      # ("The event vocabulary gained task.delta")
+
+# Phase 3 additions:
+capability.discovered
+tool.registered      # not yet published by any code path — reserved for
+                     # when a discovered capability is actually installed
+communication.received
+communication.sent
+escalation.triggered
+wallet.transaction.created
+wallet.limit.warning
+wallet.limit.blocked
+system.health.warning
 ```
 
 Every event carries `{id, type, timestamp, task_id, correlation_id, payload}`.
@@ -214,18 +290,37 @@ Every `Tool` declares a `PermissionLevel`:
   `POST /confirmations/{id}/approve|reject`. The Android app is expected to
   render a confirmation dialog whenever it receives `confirmation.required`.
 
-## What's still deliberately not implemented (as of Phase 2)
+Phase 3 layers the **Policy Engine** on top for wallet/communication/
+capability/destructive actions specifically: `MODEL -> POLICY -> ASK
+(reusing the confirmation gate above) -> EXECUTION -> AUDIT`. The model
+never has unrestricted authority over money, external communication, or
+escalation — every one of those goes through `PolicyEngine.evaluate()`
+first (see docs/ARCHITECTURE.md's "Phase 3 additions" and
+docs/DECISIONS.md).
+
+## What's still deliberately not implemented
 
 - No real GitHub/browser/web-search/coding-agent execution — those tools
   and the coding-agent interface exist and are documented, but call out
   clearly that they are not implemented yet (2Z: "only create clean
   interfaces where needed for future phases").
-- No real STT/TTS, calendar, or email integration.
+- No real STT, calendar, or email integration. TTS is real (Phase 3,
+  `expo-speech`); STT is not.
+- No wake word or voice-activity-detection engine — both need a native
+  module and a custom dev client, neither of which this build has.
+- No real Android system integrations (contacts/SMS/calls/calendar) —
+  `CommunicationChannelAdapter` is the documented seam for wiring these in
+  later; nothing calls a real Android API today.
+- No real payment rail behind the operational wallet — see
+  docs/DECISIONS.md ("The wallet is a real ledger, not a real payment
+  rail").
 - No background scheduler for proactive learning — it's a callable engine,
   invoked manually, off by default.
 - No true semantic/vector search — knowledge/memory retrieval uses
   trigram+substring text similarity; pgvector remains the documented
   upgrade path once an embedding source is chosen.
+- No MCP registry integration — `system.health`'s `mcp` component reports
+  `NOT_CONFIGURED` honestly rather than pretending.
 
 See `docs/PHASE_1.md` and `docs/PHASE_2.md` for the scope of each phase,
 and `docs/DECISIONS.md` for the reasoning behind these choices.

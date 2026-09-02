@@ -48,3 +48,17 @@ export const statusColors = {
   connecting: colors.warning,
   disconnected: colors.danger,
 } as const;
+
+/** JarvisState -> color, shared by JarvisCore and anything else that needs
+ * to render "what Jarvis is doing right now" consistently. */
+export const jarvisStateColors = {
+  IDLE: colors.accentDim,
+  LISTENING: colors.accent,
+  THINKING: colors.accent,
+  PROCESSING: colors.accent,
+  USING_TOOL: colors.warning,
+  WAITING_FOR_CONFIRMATION: colors.warning,
+  SPEAKING: colors.success,
+  ERROR: colors.danger,
+  OFFLINE: colors.textMuted,
+} as const;

@@ -15,15 +15,24 @@ default when `DATABASE_URL` is reachable).
 `backend/app/suggestions/`, `backend/app/tasks/`, `backend/app/audit/`,
 and `backend/app/cost/` for the Python side of each.
 
+`migrations/0003_phase3.sql` adds Phase 3's domains: `policies`,
+`approvals`, `capabilities`, `contacts`, `communications`,
+`escalation_events`, `wallet_accounts`, `wallet_transactions`,
+`business_ideas`, `customers`, `opportunities`, `experiments`,
+`revenue_records`. See `backend/app/policy/`, `backend/app/wallet/`,
+`backend/app/communication/`, `backend/app/escalation/`,
+`backend/app/business/`, and `backend/app/capabilities/`.
+
 ## Applying the schema
 
-Apply both files, in order — every statement is idempotent
-(`IF NOT EXISTS` / `ON CONFLICT`), so re-running either is safe:
+Apply all three files, in order — every statement is idempotent
+(`IF NOT EXISTS` / `ON CONFLICT`), so re-running any of them is safe:
 
 ```bash
 createdb jarvis
 psql jarvis -f memory/schema.sql
 psql jarvis -f memory/migrations/0002_phase2.sql
+psql jarvis -f memory/migrations/0003_phase3.sql
 ```
 
 `docker/docker-compose.yml` mounts both into Postgres's

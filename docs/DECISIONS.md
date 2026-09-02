@@ -3,6 +3,129 @@
 Short, dated records of choices made where the spec left room for more than
 one reasonable approach. Newest first.
 
+## Phase 3 (2026-09-02)
+
+### Phase 3 domains share Phase 2's one-fallback-axis rule
+
+**Decision:** the wallet, communication, escalation, business, and
+capability-discovery services are all constructed only when
+`claude_ready` (Postgres reachable **and** Claude configured) — the exact
+same gate Phase 2 used for knowledge/profile. `HealthService` is the one
+exception: it's constructed unconditionally, because reporting on a
+partially-configured stack is its entire purpose.
+
+**Why:** consistent with the Phase 2 decision "Phase 2 intelligence
+features require Postgres — no in-memory duplicate": these are all
+genuinely new, Postgres-native systems, and building a second,
+degraded/in-memory version of each just to have *something* work without
+Postgres would be exactly the kind of parallel implementation the task
+repeatedly warns against. One fallback (the complete Phase 1/2 stack), not
+five partial ones.
+
+### Phase 3 capabilities are tools, not a parallel orchestrator path
+
+**Decision:** the wallet/communication/capability-research/business/
+health services are exposed to Claude as `Tool` subclasses
+(`backend/app/tools/phase3_tools.py`), registered into the existing
+`ToolRegistry` and invoked through the existing `execute_plan()` —
+`ClaudeOrchestrator` itself gained no new "if the user wants to spend
+money, do X" branches.
+
+**Why:** the task is explicit: reuse the existing Tool Registry, don't
+build a second orchestration path. Since `ClaudePlanner` already turns a
+request into tool-invoking steps, a wallet transaction is just another
+tool call from the model's perspective — the SENSITIVE permission level
+on `wallet.propose_transaction`/`communication.propose_reply` routes it
+through the exact same confirmation gate every other sensitive tool uses.
+
+### Plan steps carry `tool_args`
+
+**Decision:** `PlanStep` gained an optional `tool_args: dict` field
+(default `{}`), and `plan_execution.execute_plan()` merges it into the
+tool call alongside the existing `project_root` default. `ClaudePlanner`'s
+prompt now includes each tool's full input schema, not just its name, and
+asks the model to fill in `tool_args` per step.
+
+**Why:** this is a real, load-bearing gap Phase 3 exposed: Phase 1/2's
+`PlanStep` had no way to pass tool-specific parameters at all — every
+tool was invoked with only `project_root="."`, which happened to work by
+accident for `project.inspect` (its argument is optional) and would have
+silently failed for anything else. A wallet transaction needs
+`amount_usd`/`vendor`/`category`/`purpose`; there was no way to supply
+them before this change. Fixed once, generically, rather than special-
+cased per tool.
+
+### The wallet is a real ledger, not a real payment rail
+
+**Decision:** `WalletStore.execute()` only ever adjusts the
+`wallet_accounts.balance_usd` column in Postgres. There is no adapter to
+a bank, card processor, or cryptocurrency network anywhere in the wallet
+module, and none is planned for Phase 3.
+
+**Why:** the task's own wallet section is emphatic about controls
+(limits, policy gating, audit) but never supplies — nor could this
+session obtain — real payment-processor credentials. Building a "real"
+external wallet integration without genuine credentials to test it
+against would mean shipping unverified financial code, which is
+categorically worse than a well-tested internal ledger that enforces the
+same limits/policy logic a real integration would need. The GREEN/YELLOW/
+RED classification, limit enforcement, and audit trail are all real and
+tested (see `backend/tests/test_wallet.py`); only the "move real money"
+step is absent, and it's absent by design, not by oversight.
+
+### Communication transmission is not faked
+
+**Decision:** `CommunicationService`/`EscalationService` both depend on a
+`CommunicationChannelAdapter`; the only implementation
+(`NotConfiguredChannelAdapter`) raises `NotImplementedError` from
+`send()`. Classification, policy gating, audit records, and (for
+escalation) the minimum-necessary disclosure message are all real and
+tested; nothing is ever actually delivered over SMS/email/a messaging
+platform.
+
+**Why:** identical reasoning to Phase 1's `GitHubTool`/`BrowserTool`
+placeholders and to the wallet decision above — no real messaging-
+platform credentials exist in this project, and a fake "send" that
+silently no-ops would let the system believe a client was notified when
+they weren't. `propose_reply()`/`EscalationService.evaluate()` both
+return `delivered=False` with a clear reason in that case, and the caller
+(the `communication.propose_reply` tool) surfaces that in its result
+rather than reporting success.
+
+### Capability discovery is real code; its network call is NOT_TESTED here
+
+**Decision:** `agent... backend/app/capabilities/github_search.py` calls
+the real, unauthenticated GitHub repository search API
+(`api.github.com/search/repositories`) — no token, no mock response.
+
+**Why, and why it's marked NOT_TESTED:** this session's own outbound
+proxy blocks that specific endpoint (`GET
+api.github.com/search/repositories` returns 403 "GitHub access is not
+enabled for this session"; `GET api.github.com` itself returns 200 — the
+network path exists, only the search endpoint is restricted). The code is
+correct for an unrestricted deployment; `backend/tests/
+test_capabilities_and_health.py::test_real_github_search_network_call`
+attempts the real call and `pytest.skip()`s with the exact reason when
+blocked, rather than mocking around the restriction. Dedup and storage
+logic are tested separately against a trivial fake network client so
+they're still verified even though the live call isn't.
+
+### Migration `0003_phase3.sql` is additive; two FK looseness calls this
+### time were caught before ever shipping
+
+**Decision:** everything from Phase 1/2 (`schema.sql`, `0002_phase2.sql`)
+is untouched; `0003_phase3.sql` adds `policies`, `approvals`,
+`capabilities`, `contacts`, `communications`, `escalation_events`,
+`wallet_accounts`, `wallet_transactions`, `business_ideas`, `customers`,
+`opportunities`, `experiments`, `revenue_records`. Unlike goals/interests/
+workflows -> projects in Phase 2 (soft references, added after a test
+caught the FK violation), `customers.contact_id`, `communications.
+contact_id`, `escalation_events.contact_id`, and `wallet_transactions.
+wallet_id` are real foreign keys — `WalletStore.get_or_create_account()`
+and `ContactStore.create()` both guarantee the referenced row exists
+before anything points at it, so there's no equivalent "record a signal
+against a project that was never created" gap here.
+
 ## Phase 2 (2026-09-01)
 
 ### Backend imports the agent package via PYTHONPATH, not packaging

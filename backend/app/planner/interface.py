@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -20,6 +21,12 @@ class PlanStep:
     # rather than trusting the response. Optional — Phase 1 planners never
     # set this, and nothing breaks if it stays None.
     expected_file: str | None = None
+    # Phase 3: arguments passed to `tool_name`'s execute() — e.g. a wallet
+    # tool needs {"amount_usd": ..., "vendor": ...}. Optional and empty by
+    # default so Phase 1/2 planners (which never set it) are unaffected;
+    # see plan_execution.execute_plan(), which merges this over the
+    # existing `project_root` default rather than replacing it.
+    tool_args: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

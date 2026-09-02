@@ -4,18 +4,20 @@
 # knowledge, profile, tasks, audit, cost — see docs/PHASE_2.md) and needs
 # ANTHROPIC_API_KEY set for ClaudeOrchestrator; without it, it falls back
 # to the Phase 1 stub stack automatically rather than failing to start.
+# Phase 3 (policy/wallet/communication/escalation/business/capabilities —
+# see docs/PHASE_3.md) shares that same gate.
 #
 # Usage (from repo root):
 #   cp backend/.env.example backend/.env   # then edit it
 #   docker compose -f docker/docker-compose.yml up --build
 #
-# Both memory/schema.sql and memory/migrations/0002_phase2.sql are
-# mounted into docker-entrypoint-initdb.d with numeric prefixes so
-# Postgres applies them in order — but ONLY on a brand-new volume. If
-# jarvis_postgres_data already exists from a Phase 1 checkout, apply the
-# migration once by hand instead:
+# memory/schema.sql and both migrations are mounted into
+# docker-entrypoint-initdb.d with numeric prefixes so Postgres applies them
+# in order — but ONLY on a brand-new volume. If jarvis_postgres_data
+# already exists from an earlier checkout, apply whichever migration you're
+# missing by hand instead:
 #   docker compose -f docker/docker-compose.yml exec -T postgres \
-#     psql -U jarvis -d jarvis -f - < memory/migrations/0002_phase2.sql
+#     psql -U jarvis -d jarvis -f - < memory/migrations/0003_phase3.sql
 
 services:
   postgres:
@@ -31,6 +33,7 @@ services:
       - jarvis_postgres_data:/var/lib/postgresql/data
       - ../memory/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ../memory/migrations/0002_phase2.sql:/docker-entrypoint-initdb.d/02_phase2.sql:ro
+      - ../memory/migrations/0003_phase3.sql:/docker-entrypoint-initdb.d/03_phase3.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jarvis"]
       interval: 5s

@@ -93,7 +93,7 @@ def build_orchestrator(
     fallback_provider = FakeProvider(response_text="fallback response", role=FALLBACK, model="fake-fallback")
     router = ModelRouter({FAST: fast_provider, PRIMARY: primary_provider, FALLBACK: fallback_provider})
 
-    planner = ClaudePlanner(router, [t.name for t in tool_registry.list()])
+    planner = ClaudePlanner(router, tool_registry)
     task_store = PostgresTaskStore(pool)
     evaluation_engine = EvaluationEngine(tool_registry)
     usage_store = InMemoryUsageStore()

@@ -22,12 +22,22 @@ from agent.provider.router import ModelRouter, build_claude_router
 
 from app.audit.logger import AuditLogger
 from app.audit.store import AuditStore, InMemoryAuditStore, PostgresAuditStore
+from app.business.service import BusinessService
+from app.business.store import BusinessStore
+from app.capabilities.service import CapabilityDiscoveryService
+from app.capabilities.store import CapabilityStore
+from app.communication.channel import NotConfiguredChannelAdapter
+from app.communication.service import CommunicationService
+from app.communication.store import CommunicationStore, ContactStore
 from app.config import get_settings
 from app.context import ContextEngine
 from app.cost.store import InMemoryUsageStore, PostgresUsageStore, UsageStore
 from app.cost.tracker import CostTracker
 from app.db.pool import close_pool, init_pool
+from app.escalation.service import EscalationService
+from app.escalation.store import EscalationStore
 from app.events.bus import EventBus, get_event_bus
+from app.health.service import HealthService
 from app.knowledge.postgres_store import PostgresKnowledgeStore
 from app.knowledge.service import KnowledgeService
 from app.learning.pipeline import LearningPipeline
@@ -40,12 +50,17 @@ from app.memory.store import (
     ShortTermMemory,
     WorkingMemory,
 )
+from app.wallet.service import WalletService
+from app.wallet.store import WalletStore
 from app.orchestrator.claude_orchestrator import ClaudeOrchestrator
 from app.orchestrator.interface import OrchestratorInterface
 from app.orchestrator.stub_orchestrator import StubOrchestrator
 from app.permissions.manager import ConfirmationManager
 from app.planner.claude_planner import ClaudePlanner
 from app.planner.stub_planner import StubPlanner
+from app.policy.approvals import ApprovalStore
+from app.policy.engine import PolicyEngine
+from app.policy.store import PolicyStore
 from app.proactive.learning import ProactiveLearningEngine
 from app.profile.interest_engine import InterestEngine
 from app.profile.interface import ProfileStore
@@ -56,6 +71,7 @@ from app.suggestions.service import SuggestionService
 from app.tasks.interface import TaskStore
 from app.tasks.postgres_store import PostgresTaskStore
 from app.tasks.store import InMemoryTaskStore
+from app.tools.phase3_tools import register_phase3_tools
 from app.tools.registry import ToolRegistry, default_registry
 from app.evaluation.engine import EvaluationEngine
 
@@ -120,6 +136,26 @@ async def initialize() -> None:
     cost_tracker = CostTracker(usage_store, daily_budget_usd=settings.token_budget_daily_usd)
     evaluation_engine = EvaluationEngine(tool_registry)
 
+    # Phase 3 domain services — see docs/DECISIONS.md ("Phase 3 domains
+    # share Phase 2's one-fallback-axis rule"): all gated behind the same
+    # claude_ready condition as knowledge/profile, so there is exactly one
+    # fallback (the complete Phase 1 stack), not a matrix of partial ones.
+    policy_engine: PolicyEngine | None = None
+    wallet_service: WalletService | None = None
+    wallet_store: WalletStore | None = None
+    communication_service: CommunicationService | None = None
+    contact_store: ContactStore | None = None
+    escalation_service: EscalationService | None = None
+    business_service: BusinessService | None = None
+    business_store: BusinessStore | None = None
+    capability_service: CapabilityDiscoveryService | None = None
+    capability_store: CapabilityStore | None = None
+    approval_store: ApprovalStore | None = None
+
+    # System health is meaningful precisely BECAUSE it can report on a
+    # partially-configured or fallback stack — always constructed.
+    health_service = HealthService(pool=pool, claude_configured=claude_ready, event_bus=event_bus, tool_registry=tool_registry)
+
     if claude_ready:
         profile_store = PostgresProfileStore(pool)
         knowledge_service = KnowledgeService(
@@ -142,6 +178,31 @@ async def initialize() -> None:
             working_memory, short_term_memory, long_term_memory, knowledge_service=knowledge_service, profile_store=profile_store
         )
 
+        # --- Phase 3: policy engine + domain services, then the tools that expose them to Claude ---
+        approval_store = ApprovalStore(pool)
+        policy_engine = PolicyEngine(
+            policy_store=PolicyStore(pool), approval_store=approval_store,
+            confirmation_manager=confirmation_manager, event_bus=event_bus, profile_store=profile_store,
+        )
+        wallet_store = WalletStore(pool)
+        wallet_service = WalletService(wallet_store, policy_engine, event_bus)
+        channel_adapter = NotConfiguredChannelAdapter()
+        contact_store = ContactStore(pool)
+        communication_service = CommunicationService(
+            contacts=contact_store, communications=CommunicationStore(pool), policy_engine=policy_engine,
+            channel=channel_adapter, event_bus=event_bus,
+        )
+        escalation_service = EscalationService(contacts=contact_store, store=EscalationStore(pool), channel=channel_adapter, event_bus=event_bus)
+        business_store = BusinessStore(pool)
+        business_service = BusinessService(business_store, wallet_store)
+        capability_store = CapabilityStore(pool)
+        capability_service = CapabilityDiscoveryService(capability_store, event_bus)
+
+        register_phase3_tools(
+            tool_registry, wallet_service=wallet_service, communication_service=communication_service,
+            capability_service=capability_service, business_service=business_service, health_service=health_service,
+        )
+
         model_router = build_claude_router(
             api_key=settings.anthropic_api_key,
             primary_model=settings.jarvis_model_primary,
@@ -151,7 +212,7 @@ async def initialize() -> None:
             timeout=settings.claude_timeout_seconds,
             max_retries=settings.claude_max_retries,
         )
-        planner = ClaudePlanner(model_router, [t.name for t in tool_registry.list()])
+        planner = ClaudePlanner(model_router, tool_registry)
 
         orchestrator = ClaudeOrchestrator(
             event_bus=event_bus,
@@ -216,6 +277,18 @@ async def initialize() -> None:
         suggestion_service=suggestion_service,
         proactive_engine=proactive_engine,
         orchestrator=orchestrator,
+        policy_engine=policy_engine,
+        wallet_service=wallet_service,
+        wallet_store=wallet_store,
+        communication_service=communication_service,
+        contact_store=contact_store,
+        escalation_service=escalation_service,
+        business_service=business_service,
+        business_store=business_store,
+        capability_service=capability_service,
+        capability_store=capability_store,
+        approval_store=approval_store,
+        health_service=health_service,
     )
 
 
@@ -287,6 +360,58 @@ def get_proactive_engine() -> ProactiveLearningEngine | None:
     return _state.get("proactive_engine")
 
 
+def get_policy_engine() -> PolicyEngine | None:
+    return _state.get("policy_engine")
+
+
+def get_wallet_service() -> WalletService | None:
+    return _state.get("wallet_service")
+
+
+def get_communication_service() -> CommunicationService | None:
+    return _state.get("communication_service")
+
+
+def get_escalation_service() -> EscalationService | None:
+    return _state.get("escalation_service")
+
+
+def get_business_service() -> BusinessService | None:
+    return _state.get("business_service")
+
+
+def get_capability_service() -> CapabilityDiscoveryService | None:
+    return _state.get("capability_service")
+
+
+def get_health_service() -> HealthService:
+    return _get("health_service")
+
+
+def get_wallet_store() -> WalletStore | None:
+    return _state.get("wallet_store")
+
+
+def get_contact_store() -> ContactStore | None:
+    return _state.get("contact_store")
+
+
+def get_business_store() -> BusinessStore | None:
+    return _state.get("business_store")
+
+
+def get_capability_store() -> CapabilityStore | None:
+    return _state.get("capability_store")
+
+
+def get_approval_store() -> ApprovalStore | None:
+    return _state.get("approval_store")
+
+
+def get_audit_store() -> AuditStore:
+    return _get("audit_store")
+
+
 def is_claude_ready() -> bool:
     return bool(_state.get("claude_ready"))
 
@@ -309,5 +434,18 @@ __all__ = [
     "get_profile_store",
     "get_suggestion_service",
     "get_proactive_engine",
+    "get_policy_engine",
+    "get_wallet_service",
+    "get_communication_service",
+    "get_escalation_service",
+    "get_business_service",
+    "get_capability_service",
+    "get_health_service",
+    "get_wallet_store",
+    "get_contact_store",
+    "get_business_store",
+    "get_capability_store",
+    "get_approval_store",
+    "get_audit_store",
     "is_claude_ready",
 ]

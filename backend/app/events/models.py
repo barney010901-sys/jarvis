@@ -40,6 +40,17 @@ class EventType(str, Enum):
     # Android app. See docs/DECISIONS.md.
     TASK_DELTA = "task.delta"
 
+    # --- Phase 3 additions (docs/DECISIONS.md, "Phase 3 event vocabulary") ---
+    CAPABILITY_DISCOVERED = "capability.discovered"
+    TOOL_REGISTERED = "tool.registered"
+    COMMUNICATION_RECEIVED = "communication.received"
+    COMMUNICATION_SENT = "communication.sent"
+    ESCALATION_TRIGGERED = "escalation.triggered"
+    WALLET_TRANSACTION_CREATED = "wallet.transaction.created"
+    WALLET_LIMIT_WARNING = "wallet.limit.warning"
+    WALLET_LIMIT_BLOCKED = "wallet.limit.blocked"
+    SYSTEM_HEALTH_WARNING = "system.health.warning"
+
 
 class Event(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))

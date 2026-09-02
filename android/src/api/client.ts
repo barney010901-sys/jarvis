@@ -10,7 +10,7 @@ export class JarvisApiError extends Error {
   }
 }
 
-async function request(settings: JarvisSettings, path: string, init: RequestInit = {}) {
+export async function request(settings: JarvisSettings, path: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(`${settings.backendHttpUrl}${path}`, {
     ...init,
     headers: {
@@ -24,6 +24,24 @@ async function request(settings: JarvisSettings, path: string, init: RequestInit
     throw new JarvisApiError(text || response.statusText, response.status);
   }
   return response;
+}
+
+/** GET a JSON endpoint. Returns null on a 503 ("not configured" — see
+ * backend/app/api/phase3_routes.py) so screens can render an honest
+ * "not available" state instead of an error banner. */
+export async function getJson<T>(settings: JarvisSettings, path: string): Promise<T | null> {
+  try {
+    const response = await request(settings, path);
+    return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof JarvisApiError && error.status === 503) return null;
+    throw error;
+  }
+}
+
+export async function postJson<T>(settings: JarvisSettings, path: string, body: unknown): Promise<T> {
+  const response = await request(settings, path, { method: 'POST', body: JSON.stringify(body) });
+  return (await response.json()) as T;
 }
 
 export async function checkHealth(settings: JarvisSettings): Promise<boolean> {

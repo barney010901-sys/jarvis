@@ -28,6 +28,9 @@ class AuditStore(ABC):
     @abstractmethod
     async def list_for_task(self, task_id: str, limit: int = 200) -> list[AuditEntry]: ...
 
+    @abstractmethod
+    async def list_recent(self, *, component: str | None = None, limit: int = 200) -> list[AuditEntry]: ...
+
 
 class InMemoryAuditStore(AuditStore):
     def __init__(self) -> None:
@@ -38,6 +41,10 @@ class InMemoryAuditStore(AuditStore):
 
     async def list_for_task(self, task_id: str, limit: int = 200) -> list[AuditEntry]:
         return [e for e in self._entries if e.task_id == task_id][:limit]
+
+    async def list_recent(self, *, component: str | None = None, limit: int = 200) -> list[AuditEntry]:
+        entries = self._entries if component is None else [e for e in self._entries if e.component == component]
+        return list(reversed(entries))[:limit]
 
 
 class PostgresAuditStore(AuditStore):
@@ -76,6 +83,21 @@ class PostgresAuditStore(AuditStore):
                 confirmation_state=r["confirmation_state"],
                 payload=json.loads(r["payload"]) if r["payload"] else {},
                 created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+
+    async def list_recent(self, *, component: str | None = None, limit: int = 200) -> list[AuditEntry]:
+        async with self._pool.acquire() as conn:
+            if component:
+                rows = await conn.fetch("SELECT * FROM audit_log WHERE component = $1 ORDER BY created_at DESC LIMIT $2", component, limit)
+            else:
+                rows = await conn.fetch("SELECT * FROM audit_log ORDER BY created_at DESC LIMIT $1", limit)
+        return [
+            AuditEntry(
+                event_type=r["event_type"], component=r["component"], action=r["action"], task_id=r["task_id"],
+                result=r["result"], confirmation_state=r["confirmation_state"],
+                payload=json.loads(r["payload"]) if r["payload"] else {}, created_at=r["created_at"],
             )
             for r in rows
         ]

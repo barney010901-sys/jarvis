@@ -54,7 +54,13 @@ async def execute_plan(
                     )
 
             await event_bus.publish(Event(type=EventType.TOOL_STARTED, task_id=task_id, payload={"tool_name": tool.name}))
-            result = await tool.run(project_root=".")
+            # `project_root="."` is the default every Phase 1/2 filesystem-
+            # style tool relies on; a Phase 3 tool's own `tool_args` (e.g. a
+            # wallet transaction's amount/vendor) are merged in alongside it
+            # (and may override it) — extra keys are simply unused by tools
+            # that don't expect them.
+            call_kwargs = {"project_root": ".", **step.tool_args, "task_id": task_id}
+            result = await tool.run(**call_kwargs)
             tool_results.append(result)
             await event_bus.publish(
                 Event(type=EventType.TOOL_COMPLETED, task_id=task_id, payload={"tool_name": tool.name, "success": result.success, "error": result.error})
