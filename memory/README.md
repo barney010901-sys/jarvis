@@ -23,9 +23,16 @@ and `backend/app/cost/` for the Python side of each.
 `backend/app/communication/`, `backend/app/escalation/`,
 `backend/app/business/`, and `backend/app/capabilities/`.
 
+`migrations/0004_phase4.sql` (foundation increment) widens
+`approvals.kind` to include `'self_modification'`, adds Capability
+Registry columns to the existing `capabilities` table (`usage_count`,
+`success_count`, `owner`, `status`, `composed_of` — no new capability
+table), and adds `self_modification_proposals` + `resource_budgets`. See
+`backend/app/selfcode/` and `backend/app/autonomy/`.
+
 ## Applying the schema
 
-Apply all three files, in order — every statement is idempotent
+Apply all four files, in order — every statement is idempotent
 (`IF NOT EXISTS` / `ON CONFLICT`), so re-running any of them is safe:
 
 ```bash
@@ -33,6 +40,7 @@ createdb jarvis
 psql jarvis -f memory/schema.sql
 psql jarvis -f memory/migrations/0002_phase2.sql
 psql jarvis -f memory/migrations/0003_phase3.sql
+psql jarvis -f memory/migrations/0004_phase4.sql
 ```
 
 `docker/docker-compose.yml` mounts both into Postgres's

@@ -291,19 +291,21 @@ right call before I add it.
 Phase 1–3.** Nothing in this codebase has ever modified its own source
 while running, and — per §16 — no sandbox or snapshot/rollback tooling
 exists yet to do it safely. Your spec's own Self-Update Protocol requires
-exactly that tooling *before* any autonomous code change. **My proposed
-default**: build the self-coding capability so it always produces a diff
-via the existing coding-agent interface and opens it for review (a PR, or
-the equivalent local diff) — it does not auto-merge or auto-deploy
-against the running backend — until real sandbox/snapshot/rollback
-infrastructure exists and has itself been tested. This is not "human
+exactly that tooling *before* any autonomous code change.
+
+**RESOLVED — confirmed by user 2026-09-02:** self-modification always
+requires explicit human confirmation before anything is applied to the
+running system, regardless of autonomy level or mode. This is not "human
 gated" in the everyday sense the spec wants to avoid (ordinary tool use,
 research, wallet transactions within limits, communication within policy
 all proceed autonomously as designed) — it's specifically that "Jarvis
-edits its own running backend code" is the one action class where
-"autonomous by default" and "no sandbox exists yet" are in direct
-tension. Confirm you want that boundary, or tell me what you'd accept
-instead.
+edits its own running backend code" is carved out as permanently
+confirmation-required. Implemented as `backend/app/selfcode`: every
+self-modification is a stored `SelfModificationProposal` (diff + reason +
+risk + test plan + rollback plan) that must go through
+`ConfirmationManager` and be explicitly approved before an `applied_at`
+timestamp is ever set — the policy engine hard-codes this (not merely
+defaults to it) so no autonomy-level setting can bypass it.
 
 **(c) Permission-model extension approach.** Extending `PermissionLevel`
 (SAFE/SENSITIVE) with the richer scopes Phase 4 wants (read/write/

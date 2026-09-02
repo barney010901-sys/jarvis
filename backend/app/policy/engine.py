@@ -75,6 +75,14 @@ class PolicyEngine:
         return await self._ask(request)
 
     async def _auto_approved(self, request: PolicyRequest, autonomy: AutonomyLevel) -> bool:
+        # Phase 4: a proposal to modify Jarvis's own running code is never
+        # auto-approved, at ANY autonomy level — confirmed by the user
+        # 2026-09-02, see docs/PHASE_4_AUDIT.md §17(b). This is a hard
+        # carve-out, not a default, so no autonomy-level setting (present
+        # or future) can silently bypass it.
+        if request.kind == "self_modification":
+            return False
+
         # LEVEL_1 (suggest-only) and LEVEL_2 (prepare-only) never auto-execute.
         if autonomy in (AutonomyLevel.LEVEL_1_SUGGEST, AutonomyLevel.LEVEL_2_PREPARE):
             return False

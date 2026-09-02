@@ -34,6 +34,7 @@ services:
       - ../memory/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ../memory/migrations/0002_phase2.sql:/docker-entrypoint-initdb.d/02_phase2.sql:ro
       - ../memory/migrations/0003_phase3.sql:/docker-entrypoint-initdb.d/03_phase3.sql:ro
+      - ../memory/migrations/0004_phase4.sql:/docker-entrypoint-initdb.d/04_phase4.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jarvis"]
       interval: 5s

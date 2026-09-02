@@ -63,15 +63,25 @@ All bearer-token auth. Return `503` if their domain isn't configured
 | `POST /escalation/evaluate` | Test the escalation decision for a given urgency/availability. |
 | `GET /settings/autonomy`, `POST /settings/autonomy` | Autonomy level (1-5 — see `app/policy/models.py`). |
 
+### Phase 4 endpoints (`backend/app/api/phase4_routes.py`, foundation increment)
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /selfcode/proposals`, `GET /selfcode/proposals` | Self-modification proposals — always policy-gated (never auto-approved, any autonomy level); `apply()`/`rollback()` are `NotImplementedError` (no sandbox yet). |
+| `GET /capability-registry/search?q=`, `POST /capability-registry/register`, `POST /capability-registry/compose` | Capability Registry (extends the Phase 3 `capabilities` table — one store, not two). |
+| `GET /autonomy/mode`, `POST /autonomy/mode` | `AutonomyMode` (distinct from Phase 3's per-action `AutonomyLevel` — see docs/DECISIONS.md). Default `AUTONOMOUS`. |
+| `POST /autonomy/budgets`, `GET /autonomy/budgets/{scope}/{kind}` | Opt-in resource budgets (money/API calls/actions/time), separate from the wallet's own hard limits. |
+
 ## Database
 
 ```bash
 psql "$DATABASE_URL" -f ../memory/schema.sql
 psql "$DATABASE_URL" -f ../memory/migrations/0002_phase2.sql
 psql "$DATABASE_URL" -f ../memory/migrations/0003_phase3.sql
+psql "$DATABASE_URL" -f ../memory/migrations/0004_phase4.sql
 ```
 
-Both are idempotent — safe to re-run. See `memory/README.md`.
+All four are idempotent — safe to re-run. See `memory/README.md`.
 
 ## Test
 
@@ -84,11 +94,11 @@ TEST_DATABASE_URL=postgresql://jarvis:jarvis@127.0.0.1:5432/jarvis_test PYTHONPA
 Without `TEST_DATABASE_URL` reachable, every Postgres-dependent test
 `pytest.skip()`s with a message saying so — the rest of the suite (event
 bus, permissions, tools, evaluation, the stub/Claude orchestrators against
-`FakeProvider`, etc.) still runs. See `docs/PHASE_3.md` for the exact
-REAL/MOCKED/PARTIALLY_IMPLEMENTED/NOT_TESTED breakdown (132 tests: 121
-backend + 11 agent, as of Phase 3).
+`FakeProvider`, etc.) still runs. 154 tests as of the Phase 4 foundation
+increment: 143 backend (142 passed + 1 honest skip — GitHub search,
+network-blocked in this sandbox) + 11 agent.
 
 ## What's real vs. stubbed
 
-See `docs/PHASE_1.md`, `docs/PHASE_2.md`, `docs/PHASE_3.md`, and
-`docs/DECISIONS.md` at the repo root.
+See `docs/PHASE_1.md`, `docs/PHASE_2.md`, `docs/PHASE_3.md`,
+`docs/PHASE_4_AUDIT.md`, and `docs/DECISIONS.md` at the repo root.

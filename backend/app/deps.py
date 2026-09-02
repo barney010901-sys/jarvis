@@ -22,9 +22,12 @@ from agent.provider.router import ModelRouter, build_claude_router
 
 from app.audit.logger import AuditLogger
 from app.audit.store import AuditStore, InMemoryAuditStore, PostgresAuditStore
+from app.autonomy.budget_service import ResourceBudgetService
+from app.autonomy.budget_store import ResourceBudgetStore
+from app.autonomy.service import AutonomyModeService
 from app.business.service import BusinessService
 from app.business.store import BusinessStore
-from app.capabilities.service import CapabilityDiscoveryService
+from app.capabilities.service import CapabilityDiscoveryService, CapabilityUsageTracker
 from app.capabilities.store import CapabilityStore
 from app.communication.channel import NotConfiguredChannelAdapter
 from app.communication.service import CommunicationService
@@ -66,6 +69,8 @@ from app.profile.interest_engine import InterestEngine
 from app.profile.interface import ProfileStore
 from app.profile.postgres_store import PostgresProfileStore
 from app.profile.workflow_detector import WorkflowDetector
+from app.selfcode.service import SelfCodeService
+from app.selfcode.store import SelfModificationStore
 from app.suggestions.postgres_store import PostgresSuggestionQueue
 from app.suggestions.service import SuggestionService
 from app.tasks.interface import TaskStore
@@ -152,6 +157,12 @@ async def initialize() -> None:
     capability_store: CapabilityStore | None = None
     approval_store: ApprovalStore | None = None
 
+    # Phase 4 foundation (4B-4E) — same one-fallback-axis gate as Phase 3;
+    # see docs/PHASE_4_AUDIT.md.
+    selfcode_service: SelfCodeService | None = None
+    autonomy_mode_service: AutonomyModeService | None = None
+    resource_budget_service: ResourceBudgetService | None = None
+
     # System health is meaningful precisely BECAUSE it can report on a
     # partially-configured or fallback stack — always constructed.
     health_service = HealthService(pool=pool, claude_configured=claude_ready, event_bus=event_bus, tool_registry=tool_registry)
@@ -197,6 +208,12 @@ async def initialize() -> None:
         business_service = BusinessService(business_store, wallet_store)
         capability_store = CapabilityStore(pool)
         capability_service = CapabilityDiscoveryService(capability_store, event_bus)
+        CapabilityUsageTracker(capability_store, event_bus).attach()
+
+        # --- Phase 4 foundation (4B-4E): additive, no Phase 1-3 behavior changed ---
+        selfcode_service = SelfCodeService(SelfModificationStore(pool), policy_engine, event_bus)
+        autonomy_mode_service = AutonomyModeService(profile_store)
+        resource_budget_service = ResourceBudgetService(ResourceBudgetStore(pool))
 
         register_phase3_tools(
             tool_registry, wallet_service=wallet_service, communication_service=communication_service,
@@ -289,6 +306,9 @@ async def initialize() -> None:
         capability_store=capability_store,
         approval_store=approval_store,
         health_service=health_service,
+        selfcode_service=selfcode_service,
+        autonomy_mode_service=autonomy_mode_service,
+        resource_budget_service=resource_budget_service,
     )
 
 
@@ -412,6 +432,18 @@ def get_audit_store() -> AuditStore:
     return _get("audit_store")
 
 
+def get_selfcode_service() -> SelfCodeService | None:
+    return _state.get("selfcode_service")
+
+
+def get_autonomy_mode_service() -> AutonomyModeService | None:
+    return _state.get("autonomy_mode_service")
+
+
+def get_resource_budget_service() -> ResourceBudgetService | None:
+    return _state.get("resource_budget_service")
+
+
 def is_claude_ready() -> bool:
     return bool(_state.get("claude_ready"))
 
@@ -447,5 +479,8 @@ __all__ = [
     "get_capability_store",
     "get_approval_store",
     "get_audit_store",
+    "get_selfcode_service",
+    "get_autonomy_mode_service",
+    "get_resource_budget_service",
     "is_claude_ready",
 ]

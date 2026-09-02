@@ -229,6 +229,46 @@ docs/DECISIONS.md.
   (contacts/SMS/calls/calendar) are **not implemented** — see "What's
   still deliberately not implemented" below and docs/PHASE_3.md.
 
+## Phase 4 additions (foundation increment 4B-4E; `backend/app/*`)
+
+Phase 4 is the "autonomous self-evolving business operating system"
+expansion — an enormous spec (30 named subsystems). This increment builds
+only the foundation layer (4B-4E from the recommended order in
+docs/PHASE_4_AUDIT.md), additively, with no Phase 1-3 behavior changed
+beyond one widened CHECK constraint (see docs/DECISIONS.md):
+
+- **selfcode** — `SelfModificationProposal`/`SelfCodeService`: the one
+  path by which a change to Jarvis's own code can be proposed. Always
+  routes through `PolicyEngine` with `kind="self_modification"`, which is
+  hard-coded to never auto-approve at any autonomy level (confirmed by
+  the user 2026-09-02 — see docs/PHASE_4_AUDIT.md §17b). `apply()`/
+  `rollback()` raise `NotImplementedError`: no sandbox/snapshot tooling
+  exists yet to safely execute an approved change against the running
+  system.
+- **capabilities (extended)** — the Phase 3 discovery table now also
+  backs a Capability Registry: `register_internal()`/`compose()`/
+  `search()`/`record_usage()` alongside the existing GitHub-search
+  methods. `CapabilityUsageTracker` is a new `EventBus` wildcard
+  subscriber (same pattern as `AuditLogger`) that updates usage/success
+  counts from `TOOL_COMPLETED` events — no change to
+  `plan_execution.py`.
+- **autonomy** — `AutonomyMode` (a *different* concept from Phase 3's
+  per-action `AutonomyLevel`; see docs/DECISIONS.md), describing the
+  posture of the continuous autonomous loop as a whole. Default
+  `AUTONOMOUS`, not `HUMAN_GATED`. `ResourceBudgetService` is an opt-in
+  money/API-call/action/time budget tracker, separate from the wallet's
+  own hard financial limits.
+
+New REST surface: `backend/app/api/phase4_routes.py` —
+`/selfcode/proposals`, `/capability-registry/{search,register,compose}`,
+`/autonomy/mode`, `/autonomy/budgets`.
+
+Everything else in the Phase 4 spec (Agent Runtime, Workflow Engine,
+Research Engine, Learning/Prediction/Decision Engines, Economic Engine,
+Business OS breadth, self-healing/self-testing/self-update execution,
+Command Center, and 20+ more subsystems) is **not built yet** — see
+docs/PHASE_4_AUDIT.md for the full dependency list and recommended order.
+
 ## Event model
 
 The event bus is the backbone connecting the orchestrator, permissions

@@ -31,7 +31,7 @@ DEFAULT_AUTONOMY_LEVEL = AutonomyLevel.LEVEL_3_ASK
 
 @dataclass
 class PolicyRequest:
-    kind: str  # 'wallet_transaction' | 'communication' | 'tool_install' | 'destructive_operation' | 'capability_install' | 'other'
+    kind: str  # 'wallet_transaction' | 'communication' | 'tool_install' | 'destructive_operation' | 'capability_install' | 'self_modification' | 'other'
     title: str
     description: str
     risk: str = "medium"  # 'low' | 'medium' | 'high'

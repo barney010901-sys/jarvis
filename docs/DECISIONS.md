@@ -3,6 +3,71 @@
 Short, dated records of choices made where the spec left room for more than
 one reasonable approach. Newest first.
 
+## Phase 4 (2026-09-02, foundation increment 4B-4E)
+
+### Self-modification is hard-gated in `PolicyEngine`, not just defaulted that way
+
+**Decision:** `PolicyEngine._auto_approved()` returns `False` immediately
+for any `PolicyRequest(kind="self_modification")`, before any autonomy-level
+branching runs. Confirmed explicitly by the user (2026-09-02, in response
+to the Phase 4 audit's §17b question): a proposal to change Jarvis's own
+running code always requires human confirmation, at every autonomy level
+Phase 3 or Phase 4 defines. **Why a hard carve-out instead of a default:**
+a default can be changed by a future autonomy-level/mode setting without
+anyone noticing the consequence; a carve-out in the one function that
+decides auto-approval cannot be bypassed by any such setting. See
+`backend/app/selfcode/service.py` and docs/PHASE_4_AUDIT.md §17(b).
+
+### `AutonomyMode` (Phase 4) is a new concept, not a replacement for Phase 3's `AutonomyLevel`
+
+**Decision:** Phase 3's `AutonomyLevel` (1-5, `app.policy.models`) keeps
+governing individual policy-gated actions exactly as before. Phase 4's
+spec defines a different 6-level scale (0 Observe … 5 Human-Gated)
+describing the posture of the continuous autonomous loop as a whole.
+Rather than renumber or replace the enum Phase 3 tests and the
+`preferences` table already depend on, Phase 4 adds `AutonomyMode`
+(`app.autonomy.models`) as a distinct preference key
+(`autonomy_mode`, vs. Phase 3's `autonomy_level`). Default is `AUTONOMOUS`,
+not `HUMAN_GATED` — explicit user instruction (2026-09-02): "don't default
+to human-gated." The two scales compose: an `AUTONOMOUS`-mode engine still
+has every wallet/communication/self-modification action evaluated by the
+unchanged `PolicyEngine`.
+
+### Capability Registry extends the Phase 3 `capabilities` table, doesn't duplicate it
+
+**Decision:** Phase 4's richer capability metadata (usage stats, owner,
+status, composition) was added as new columns on the existing `capabilities`
+table (migration `0004_phase4.sql`, all `ADD COLUMN IF NOT EXISTS`) rather
+than a second table. `CapabilityDiscoveryService` gained `register_internal`/
+`compose`/`search`/`record_usage` alongside its existing GitHub-discovery
+methods — one capability store, whether an entry came from GitHub search
+or was registered internally. `CapabilityUsageTracker` is a new wildcard-
+style `EventBus` subscriber (same pattern as `AuditLogger`) that updates
+usage stats from `TOOL_COMPLETED` events — zero changes to
+`plan_execution.py` or either orchestrator.
+
+### Self-code `apply()`/`rollback()` raise `NotImplementedError` on purpose
+
+**Decision:** an APPROVED self-modification proposal is a real, audited
+decision — it is not executed. This sandbox has no isolated execution
+environment or snapshot/rollback tooling (docs/PHASE_4_AUDIT.md §16), and
+the Phase 4 spec's own Self-Update Protocol requires that tooling exist
+*before* any autonomous code change is actually applied. Matches the
+established `GitHubTool`/`BrowserTool` pattern: correct interface, honest
+`NotImplementedError` until the real capability exists — never faked.
+
+### `approvals.kind` widened to include `'self_modification'`
+
+**Decision:** `ALTER TABLE approvals DROP/ADD CONSTRAINT` in
+`0004_phase4.sql` widens the CHECK constraint's allowed values. This
+touches an existing Phase 3 table, but only by widening an enum-like
+constraint — no existing row is affected (all satisfy the wider
+constraint), no existing code path changes behavior, and it's what lets
+self-modification proposals flow through the *same* Approval
+Center/ConfirmationManager as every other Phase 3 approval, rather than a
+second approval mechanism. Reversible by re-narrowing the constraint if
+ever needed (no data loss either way).
+
 ## Phase 3 (2026-09-02)
 
 ### Phase 3 domains share Phase 2's one-fallback-axis rule
