@@ -1,0 +1,64 @@
+name: Build Android debug APK and publish a GitHub Release
+
+# Manual only: this does not run on every push. It exists so a real,
+# installable debug APK can be produced and attached to a GitHub Release
+# without committing a ~150MB binary into the repository itself (the
+# sandbox that builds Jarvis has no tool to upload release assets
+# directly, and the APK is too large to hand over any other way — see
+# docs/PHASE_3.md / android/README.md for the rest of the build's
+# REAL/MOCKED/NOT_TESTED status).
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create/update (e.g. android-v1.0.0)"
+        required: true
+        default: "android-v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Android app dependencies
+        working-directory: android
+        run: npm ci
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Generate native Android project (expo prebuild)
+        working-directory: android
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build debug APK
+        working-directory: android/android
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+
+      - name: Publish GitHub Release with the APK attached
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          name: "Jarvis Android debug build (${{ inputs.tag_name }})"
+          body: |
+            Debug APK built from `${{ github.sha }}` via this repo's
+            `android-apk-release.yml` workflow (`./gradlew assembleDebug`
+            in `android/android` after `expo prebuild`).
+
+            This is a **debug** build (signed with the standard Android
+            debug key) for installation/testing — not a Play Store
+            release build. See `android/README.md` for what's verified
+            vs. not in this build.
+          files: android/android/app/build/outputs/apk/debug/app-debug.apk
+          draft: false
+          prerelease: true
